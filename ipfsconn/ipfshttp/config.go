@@ -24,6 +24,7 @@ const (
 	DefaultIPFSRequestTimeout = 5 * time.Minute
 	DefaultPinTimeout         = 24 * time.Hour
 	DefaultUnpinTimeout       = 3 * time.Hour
+	DefaultDisableUnpinning   = false
 )
 
 // Config is used to initialize a Connector and allows to customize
@@ -53,6 +54,9 @@ type Config struct {
 	// Unpin Operation timeout
 	UnpinTimeout time.Duration
 
+	// Disables the unpin operation and returns an error.
+	DisableUnpinning bool
+
 	// Tracing flag used to skip tracing specific paths when not enabled.
 	Tracing bool
 }
@@ -64,6 +68,7 @@ type jsonConfig struct {
 	IPFSRequestTimeout string `json:"ipfs_request_timeout"`
 	PinTimeout         string `json:"pin_timeout"`
 	UnpinTimeout       string `json:"unpin_timeout"`
+	DisableUnpinning   bool   `json:"disable_unpinning"`
 }
 
 // ConfigKey provides a human-friendly identifier for this type of Config.
@@ -80,6 +85,7 @@ func (cfg *Config) Default() error {
 	cfg.IPFSRequestTimeout = DefaultIPFSRequestTimeout
 	cfg.PinTimeout = DefaultPinTimeout
 	cfg.UnpinTimeout = DefaultUnpinTimeout
+	cfg.DisableUnpinning = DefaultDisableUnpinning
 
 	return nil
 }
@@ -154,6 +160,7 @@ func (cfg *Config) applyJSONConfig(jcfg *jsonConfig) error {
 	}
 
 	cfg.NodeAddr = nodeAddr
+	cfg.DisableUnpinning = jcfg.DisableUnpinning
 
 	err = config.ParseDurations(
 		"ipfshttp",
@@ -199,6 +206,7 @@ func (cfg *Config) toJSONConfig() (jcfg *jsonConfig, err error) {
 	jcfg.IPFSRequestTimeout = cfg.IPFSRequestTimeout.String()
 	jcfg.PinTimeout = cfg.PinTimeout.String()
 	jcfg.UnpinTimeout = cfg.UnpinTimeout.String()
+	jcfg.DisableUnpinning = cfg.DisableUnpinning
 
 	return
 }
