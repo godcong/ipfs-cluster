@@ -1170,17 +1170,28 @@ func (c *Cluster) PinGet(ctx context.Context, h cid.Cid) (*api.Pin, error) {
 // to the global state. Pin does not reflect the success or failure
 // of underlying IPFS daemon pinning operations.
 //
-// If the argument's allocations are non-empty then these peers are pinned with
-// priority over other peers in the cluster.  If the max repl factor is less
-// than the size of the specified peerset then peers are chosen from this set
-// in allocation order.  If the min repl factor is greater than the size of
-// this set then the remaining peers are allocated in order from the rest of
-// the cluster.  Priority allocations are best effort.  If any priority peers
-// are unavailable then Pin will simply allocate from the rest of the cluster.
+// If the options argument UserAllocations are non-empty then these peers are
+// pinned with priority over other peers in the cluster.  If the max repl
+// factor is less than the size of the specified peerset then peers are chosen
+// from this set in allocation order.  If the min repl factor is greater than
+// the size of this set then the remaining peers are allocated in order from
+// the rest of the cluster.  Priority allocations are best effort.  If any
+// priority peers are unavailable then Pin will simply allocate from the rest
+// of the cluster.
+//
+// If the Update option is set, the pin options (including allocations) will
+// be copied from an existing one. This is equivalent to running PinUpdate.
 func (c *Cluster) Pin(ctx context.Context, pin *api.Pin) error {
 	_, span := trace.StartSpan(ctx, "cluster/Pin")
 	defer span.End()
 	ctx = trace.NewContext(c.ctx, span)
+
+	// Handle pin updates when the options are set
+	if update := pin.PinUpdate; update != cid.Undef && !update.Equals(pin.Cid) {
+		return c.PinUpdate(ctx, update, pin.Cid)
+	}
+
+	// Standard path: allocate
 	_, _, err := c.pin(ctx, pin, []peer.ID{}, pin.UserAllocations)
 	return err
 }
@@ -1267,10 +1278,10 @@ func (c *Cluster) setupPin(ctx context.Context, pin *api.Pin) error {
 	return checkPinType(pin)
 }
 
-// pin performs the actual pinning and supports a blacklist to be
-// able to evacuate a node and returns the pin object that it tried to pin, whether the pin was submitted
-// to the consensus layer or skipped (due to error or to the fact
-// that it was already valid) and errror.
+// pin performs the actual pinning and supports a blacklist to be able to
+// evacuate a node and returns the pin object that it tried to pin, whether
+// the pin was submitted to the consensus layer or skipped (due to error or to
+// the fact that it was already valid) and error.
 func (c *Cluster) pin(ctx context.Context, pin *api.Pin, blacklist []peer.ID, prioritylist []peer.ID) (*api.Pin, bool, error) {
 	ctx, span := trace.StartSpan(ctx, "cluster/pin")
 	defer span.End()
@@ -1385,6 +1396,24 @@ func (c *Cluster) unpinClusterDag(metaPin *api.Pin) error {
 		}
 	}
 	return nil
+}
+
+func (c *Cluster) PinUpdate(ctx context.Context, from cid.Cid, to cid.Cid) error {
+	existing, err := c.PinGet(ctx, from)
+	if err != nil { // including when the existing pin is not found
+		return err
+	}
+
+	// Hector: I am not sure whether it has any point to update something
+	// like a MetaType.
+	if existing.Type != api.DataType {
+		return errors.New("this pin type cannot be updated")
+	}
+
+	existing.Cid = to
+	existing.PinUpdate = from
+
+	return c.consensus.LogPin(ctx, existing)
 }
 
 // PinPath pins an CID resolved from its IPFS Path. It returns the resolved
